@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8" />
+    <title>Telegram Notify — краткая инструкция</title>
+</head>
+<body>
+<main>
+    <h1>Telegram Notify — краткое описание и инструкция</h1>
+
+    <section>
+        <p>Плагин позволяет отправлять уведомления о новых заказах в WooCommerce и сообщениях, отправленных через формы плагина Contact Form 7.</p>
+        <p>Уведомления можно отдельно включить/выключить для WooCommerce и Contact Form 7, а также отдельно для определенных форм.</p>
+    </section>
+
+    <section>
+        <h2>Когда пригодится</h2>
+        <ul>
+            <li><strong>Магазину</strong> — мгновенно получать статусы новых заказов и изменения оплаты.</li>
+            <li><strong>Администратору или менеджеру</strong> — оперативно реагировать на заявки с сайта и корректировать статусы заказов.</li>
+            <li><strong>Команде поддержки</strong> — перенаправлять клиентские сообщения и отслеживать формы обратной связи.</li>
+        </ul>
+    </section>
+
+    <section>
+        <h2>Асинхронная отправка</h2>
+        <p>Опция «Не блокировать выполнение запроса (отправка через фон)» складывает сообщения в очередь и отправляет их отдельным фоновым процессом. Это позволяет не задерживать загрузку страниц сайта, даже если Telegram API отвечает с задержкой.</p>
+    </section>
+
+    <section>
+        <h2>Bot Token</h2>
+        <ol>
+            <li>Откройте в Telegram бота <strong>@BotFather</strong> и отправьте команды <code>/start</code>, затем <code>/newbot</code>.</li>
+            <li>Введите желаемое имя и уникальное username (должен заканчиваться на <code>Bot</code>, например <code>MyShopBot</code>).</li>
+            <li>Скопируйте выданный BotFather токен и вставьте его в поле <em>Bot Token</em> в настройках плагина.</li>
+        </ol>
+    </section>
+
+    <section>
+        <h2>Минимальные требования</h2>
+        <ul>
+            <li>WordPress 6.0+, WooCommerce 6.0+ (при использовании заказов).</li>
+            <li>PHP 8.0+ с поддержкой HTTPS и расширения cURL (или WordPress HTTP API).</li>
+            <li>Возможность исходящих HTTPS-запросов к <code>api.telegram.org</code>.</li>
+        </ul>
+    </section>
+
+    <section>
+        <h2>Chat ID(s)</h2>
+        <ol>
+            <li>Отправьте любое сообщение своему боту или в нужный канал (для каналов предварительно добавьте бота в администраторы).</li>
+            <li>Перейдите по адресу <code>https://api.telegram.org/bot&lt;ВАШ_ТОКЕН&gt;/getUpdates</code> и найдите в ответе JSON объект <code>chat</code> с полем <code>id</code>.</li>
+            <li>Альтернатива: напишите команду <code>/start</code> боту <strong>@userinfobot</strong> — он пришлёт ваш chat id мгновенно.</li>
+        </ol>
+        <p>Для публичного канала можно использовать формат <code>@channelusername</code> или числовой chat id.</p>
+    </section>
+
+    <section>
+        <h2>Очередь и логи</h2>
+        <ul>
+            <li><strong>Очистка очереди:</strong> на странице настроек нажмите «Очистить очередь сообщений», чтобы удалить зависшие задания.</li>
+            <li><strong>Повторная отправка:</strong> в карточке заказа доступна кнопка повторной отправки уведомления (если включены уведомления WooCommerce).</li>
+            <li><strong>Отладка:</strong> блок «Последняя ошибка» и «Отладочные логи» в настройках помогает увидеть ответы Telegram API и диагностировать проблемы.</li>
+        </ul>
+    </section>
+
+    <section>
+        <h2>Памятка по шаблонам</h2>
+
+        <h3>HTML (Parse Mode)</h3>
+        <ul>
+            <li><code>&lt;b&gt;</code> / <code>&lt;strong&gt;</code> — <strong>жирный текст</strong></li>
+            <li><code>&lt;i&gt;</code> / <code>&lt;em&gt;</code> — <em>курсив</em></li>
+            <li><code>&lt;u&gt;</code> — <u>подчёркнутый текст</u></li>
+            <li><code>&lt;code&gt;</code> — <code>моноширинный фрагмент</code></li>
+            <li><code>&lt;pre&gt;</code> — блок предварительно форматированного текста</li>
+            <li><code>&lt;a href="..."&gt;</code> — ссылка</li>
+            <li><code>&lt;br&gt;</code> — перенос строки</li>
+        </ul>
+        <p>Пример HTML-шаблона:</p>
+        <pre><code>&lt;b&gt;Новый заказ #{order_id}&lt;/b&gt;
+Статус: {from_status} → {to_status}
+Клиент: {customer_name}
+Телефон: {phone}
+Email: {email}
+Сумма: {total}
+Товары:
+{items}
+&lt;a href=&quot;{order_link}&quot;&gt;Открыть в админке&lt;/a&gt;</code></pre>
+
+        <h3>MarkdownV2 (Parse Mode)</h3>
+        <ul>
+            <li><code>*жирный*</code> — <strong>жирный текст</strong></li>
+            <li><code>_курсив_</code> — <em>наклонный текст</em></li>
+            <li><code>__подчёркнутый__</code> — <u>подчёркнутый текст</u></li>
+            <li><code>~перечёркнутый~</code> — <del>перечёркнутый текст</del></li>
+            <li><code>||спойлер||</code> — скрытый текст</li>
+            <li><code>[текст](https://example.com)</code> — внешняя ссылка</li>
+            <li><code>[профиль](tg://user?id=123456789)</code> — ссылка на пользователя</li>
+            <li><code>`моноширинный`</code> — моноширинный фрагмент</li>
+            <li><code>```код```</code> или <code>```python код```</code> — блок кода</li>
+            <li><code>*_комбинированное форматирование_* </code> — допускаются вложения, главное экранировать специальные символы.</li>
+        </ul>
+        <p>Пример MarkdownV2-шаблона:</p>
+        <pre><code>*Новый заказ #{order_id}*
+Статус: {from_status} → {to_status}
+Клиент: {customer_name}
+Телефон: {phone}
+Email: {email}
+Сумма: {total}
+Товары:
+{items}
+[Открыть в админке]({order_link})</code></pre>
+        <p><strong>Важно:</strong> в MarkdownV2 экранируйте специальные символы (например, знак «-», «.», «(», «)» и т. д.), если они встречаются в статичном тексте шаблона.</p>
+    </section>
+
+    <section>
+        <h2>Безопасность и ограничения</h2>
+        <ul>
+            <li>Храните токен бота в непубличном месте и не публикуйте его в коде или репозиториях.</li>
+            <li>Telegram ограничивает частоту отправки сообщений: не превышайте ~30 сообщений в секунду для одного бота.</li>
+            <li>Максимальная длина одного сообщения — 4096 символов. Старайтесь сокращать шаблоны или делить большие сообщения.</li>
+            <li>В MarkdownV2 следует экранировать специальные символы (<code>- _ * [ ] ( ) ~ ` &gt; # + = | { } . !</code>), иначе Telegram вернёт ошибку.</li>
+        </ul>
+    </section>
+
+    <section>
+        <h2>Плейсхолдеры</h2>
+        <ul>
+            <li><code>{order_id}</code> — номер заказа</li>
+            <li><code>{from_status}</code> — исходный статус</li>
+            <li><code>{to_status}</code> — новый статус</li>
+            <li><code>{customer_name}</code> — имя покупателя</li>
+            <li><code>{phone}</code> — телефон покупателя</li>
+            <li><code>{email}</code> — email покупателя</li>
+            <li><code>{total}</code> — итоговая сумма</li>
+            <li><code>{items}</code> — список товаров</li>
+            <li><code>{order_link}</code> — ссылка на заказ</li>
+            <li><code>{form_title}</code> — название формы Contact Form 7</li>
+            <li><code>{all_fields}</code> — все поля формы в виде текста</li>
+            <li><code>{field_{field_name}}</code> — конкретное поле формы (подставьте имя поля вместо <code>field_name</code>)</li>
+        </ul>
+    </section>
+</main>
+</body>
+</html>
