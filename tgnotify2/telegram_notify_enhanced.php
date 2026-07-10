@@ -1,12 +1,15 @@
 <?php
 /**
- * Plugin Name: Telegram Notify Enhanced
- * Plugin URI:  https://example.com
+ * Plugin Name: c0dx: Telegram Notify Enhanced
+ * Plugin URI:  https://github.com/c0dx-dev/tgnotify
  * Description: Sends WooCommerce order and Contact Form 7 submission notifications to Telegram. Supports message templates with placeholders, multiple chat IDs, parse mode selection (HTML / MarkdownV2), asynchronous dispatching, i18n, and customization filters. Compatible with WP 6+ and PHP 8+.
  * Version:     2.1.1
- * Author:      svtagan@gmail.com
+ * Author:      c0dx-dev (c0dx.ru)
+ * Author URI:  https://c0dx.ru/
  * Text Domain: telegram-notify
  * Domain Path: /languages
+ * License:     MIT
+ * License URI: https://opensource.org/licenses/MIT
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
