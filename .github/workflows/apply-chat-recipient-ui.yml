@@ -1,9 +1,13 @@
 name: Apply chat recipient UI update
 
 on:
-  push:
+  pull_request:
     branches:
-      - feature/chat-recipient-ui-2.3.0
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
 
 permissions:
   contents: write
@@ -14,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Check out branch
+      - name: Check out feature branch
         uses: actions/checkout@v4
         with:
           ref: feature/chat-recipient-ui-2.3.0
