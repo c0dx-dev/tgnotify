@@ -3,7 +3,7 @@
  * Plugin Name: c0dx: Telegram Notify Enhanced
  * Plugin URI:  https://github.com/c0dx-dev/tgnotify
  * Description: Sends WooCommerce order and Contact Form 7 submission notifications to Telegram. Supports message templates with placeholders, multiple chat IDs, parse mode selection (HTML / MarkdownV2), asynchronous dispatching, i18n, and customization filters. Compatible with WP 6+ and PHP 8+.
- * Version:     2.1.1
+ * Version:     2.2.0
  * Author:      c0dx-dev (c0dx.ru)
  * Author URI:  https://c0dx.ru/
  * Text Domain: telegram-notify
@@ -15,6 +15,16 @@
 if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
+
+add_action( 'before_woocommerce_init', static function() {
+    if ( class_exists( '\\Automattic\\WooCommerce\\Utilities\\FeaturesUtil' ) ) {
+        \Automattic\WooCommerce\Utilities\FeaturesUtil::declare_compatibility(
+            'custom_order_tables',
+            __FILE__,
+            true
+        );
+    }
+} );
 
 class TN_Telegram_Notify_Enhanced {
     private string $option_prefix = 'tn_enh_';
@@ -33,8 +43,8 @@ class TN_Telegram_Notify_Enhanced {
 
     public function __construct() {
         $this->about_file_path = trailingslashit( plugin_dir_path( __FILE__ ) ) . 'about.html';
-        $this->load_textdomain();
 
+        add_action( 'init', [ $this, 'load_textdomain' ] );
         add_action( 'admin_menu', [ $this, 'add_admin_menu' ] );
         add_action( 'admin_init', [ $this, 'register_settings' ] );
         add_action( 'admin_post_tn_enh_save_test_message', [ $this, 'handle_test_message' ] );
@@ -51,8 +61,6 @@ class TN_Telegram_Notify_Enhanced {
             add_action( 'woocommerce_new_order', [ $this, 'on_order_created_fallback' ], 10, 1 );
         }
 
-        add_action( 'admin_post_tn_resend_order', [ $this, 'admin_resend_order' ] );
-
         add_action( 'tn_enh_send_queued_messages', [ $this, 'process_message_queue' ] );
     }
 
@@ -61,6 +69,23 @@ class TN_Telegram_Notify_Enhanced {
             'message' => $message,
             'type'    => $type,
         ], MINUTE_IN_SECONDS );
+    }
+
+    private function get_send_result_summary( $result, string $success_message ): string {
+        if ( is_array( $result ) && ! empty( $result['queued'] ) ) {
+            return __( 'Сообщение добавлено в очередь отправки.', 'telegram-notify' );
+        }
+
+        if ( is_array( $result ) && isset( $result['sent'] ) ) {
+            return sprintf(
+                /* translators: 1: success message, 2: number of destination chats */
+                __( '%1$s Доставлено в чатов: %2$d.', 'telegram-notify' ),
+                $success_message,
+                (int) $result['sent']
+            );
+        }
+
+        return $success_message;
     }
 
     public function load_textdomain() {
@@ -230,6 +255,10 @@ class TN_Telegram_Notify_Enhanced {
     }
 
     public function sanitize_bot_token( $value ): string {
+        if ( '__TN_KEEP_EXISTING__' === $value ) {
+            return (string) get_option( $this->option_prefix . 'bot_token', '' );
+        }
+
         $value = is_string( $value ) ? trim( $value ) : '';
         return preg_replace( '/[^0-9A-Za-z:_-]/', '', $value );
     }
@@ -302,14 +331,25 @@ class TN_Telegram_Notify_Enhanced {
     }
 
     public function render_bot_token_field() {
-        $value = get_option( $this->option_prefix . 'bot_token', '' );
+        $option_name = $this->option_prefix . 'bot_token';
+        $value = (string) get_option( $option_name, '' );
+
         if ( defined( 'TN_TELEGRAM_BOT_TOKEN' ) && TN_TELEGRAM_BOT_TOKEN ) {
-            $value = TN_TELEGRAM_BOT_TOKEN;
+            printf(
+                '<input type="password" id="tn_enh_bot_token" value="%1$s" class="regular-text" disabled autocomplete="new-password" />' .
+                '<input type="hidden" name="%2$s" value="__TN_KEEP_EXISTING__" />' .
+                '<p class="description">%3$s</p>',
+                esc_attr( '••••••••••••' ),
+                esc_attr( $option_name ),
+                esc_html__( 'Токен задан через константу TN_TELEGRAM_BOT_TOKEN и не выводится в интерфейсе.', 'telegram-notify' )
+            );
+            return;
         }
+
         printf(
-            '<input type="text" id="tn_enh_bot_token" name="%1$s" value="%2$s" class="regular-text" />' .
+            '<input type="password" id="tn_enh_bot_token" name="%1$s" value="%2$s" class="regular-text" autocomplete="new-password" />' .
             '<p class="description">%3$s</p>',
-            esc_attr( $this->option_prefix . 'bot_token' ),
+            esc_attr( $option_name ),
             esc_attr( $value ),
             esc_html__( 'Token от BotFather, например 123456:ABC-DEF...', 'telegram-notify' )
         );
@@ -713,7 +753,7 @@ class TN_Telegram_Notify_Enhanced {
             </form>
 
             <?php if ( $last_error ) : ?>
-                <h3><?php esc_html_e( 'Последний ответ Telegram API', 'telegram-notify' ); ?></h3>
+                <h3><?php esc_html_e( 'Последний результат отправки', 'telegram-notify' ); ?></h3>
                 <code><?php echo esc_html( $last_error ); ?></code>
             <?php endif; ?>
 
@@ -737,8 +777,9 @@ class TN_Telegram_Notify_Enhanced {
             update_option( $this->option_prefix . 'last_error', $res->get_error_message() );
             $this->set_admin_notice( $res->get_error_message(), 'error' );
         } else {
-            update_option( $this->option_prefix . 'last_error', wp_json_encode( $res ) );
-            $this->set_admin_notice( __( 'Тест отправлен.', 'telegram-notify' ), 'success' );
+            $summary = $this->get_send_result_summary( $res, __( 'Тест отправлен.', 'telegram-notify' ) );
+            update_option( $this->option_prefix . 'last_error', $summary );
+            $this->set_admin_notice( $summary, 'success' );
         }
 
         $redirect = admin_url( 'options-general.php?page=' . $this->settings_page_slug );
@@ -812,8 +853,9 @@ class TN_Telegram_Notify_Enhanced {
             update_option( $this->option_prefix . 'last_error', $result->get_error_message() );
             $this->set_admin_notice( $result->get_error_message(), 'error' );
         } else {
-            update_option( $this->option_prefix . 'last_error', wp_json_encode( $result ) );
-            $this->set_admin_notice( __( 'Тестовый заказ отправлен.', 'telegram-notify' ), 'success' );
+            $summary = $this->get_send_result_summary( $result, __( 'Тестовый заказ отправлен.', 'telegram-notify' ) );
+            update_option( $this->option_prefix . 'last_error', $summary );
+            $this->set_admin_notice( $summary, 'success' );
         }
 
         wp_safe_redirect( admin_url( 'options-general.php?page=' . $this->settings_page_slug ) );
@@ -865,8 +907,9 @@ class TN_Telegram_Notify_Enhanced {
             update_option( $this->option_prefix . 'last_error', $result->get_error_message() );
             $this->set_admin_notice( $result->get_error_message(), 'error' );
         } else {
-            update_option( $this->option_prefix . 'last_error', wp_json_encode( $result ) );
-            $this->set_admin_notice( __( 'Тестовая отправка CF7 выполнена.', 'telegram-notify' ), 'success' );
+            $summary = $this->get_send_result_summary( $result, __( 'Тестовая отправка CF7 выполнена.', 'telegram-notify' ) );
+            update_option( $this->option_prefix . 'last_error', $summary );
+            $this->set_admin_notice( $summary, 'success' );
         }
 
         wp_safe_redirect( admin_url( 'options-general.php?page=' . $this->settings_page_slug ) );
@@ -890,6 +933,117 @@ class TN_Telegram_Notify_Enhanced {
         return wp_kses_post( $raw );
     }
 
+    private function resolve_order( int $order_id, $order = null ) {
+        if ( $order instanceof WC_Order ) {
+            return $order;
+        }
+
+        if ( ! function_exists( 'wc_get_order' ) ) {
+            return null;
+        }
+
+        $resolved = wc_get_order( $order_id );
+        return $resolved instanceof WC_Order ? $resolved : null;
+    }
+
+    private function get_order_meta_value( $order, string $key ) {
+        if ( $order instanceof WC_Order ) {
+            return $order->get_meta( $key, true );
+        }
+
+        return get_post_meta( (int) $order, $key, true );
+    }
+
+    private function update_order_meta_value( $order, string $key, $value ): void {
+        if ( $order instanceof WC_Order ) {
+            $order->update_meta_data( $key, $value );
+            $order->save_meta_data();
+            return;
+        }
+
+        update_post_meta( (int) $order, $key, $value );
+    }
+
+    private function delete_order_meta_value( $order, string $key ): void {
+        if ( $order instanceof WC_Order ) {
+            $order->delete_meta_data( $key );
+            $order->save_meta_data();
+            return;
+        }
+
+        delete_post_meta( (int) $order, $key );
+    }
+
+    private function get_order_edit_url( $order ): string {
+        if ( $order instanceof WC_Order ) {
+            if ( method_exists( $order, 'get_edit_order_url' ) ) {
+                $url = $order->get_edit_order_url();
+                if ( is_string( $url ) && '' !== $url ) {
+                    return $url;
+                }
+            }
+
+            return admin_url( 'post.php?post=' . $order->get_id() . '&action=edit' );
+        }
+
+        return admin_url( 'edit.php?post_type=shop_order' );
+    }
+
+    private function build_order_queue_context( WC_Order $order, string $to_status, ?string $from_status, bool $is_new_order ): array {
+        return [
+            'type'         => 'order',
+            'order_id'     => (int) $order->get_id(),
+            'to_status'    => $to_status,
+            'from_status'  => $from_status,
+            'is_new_order' => $is_new_order,
+        ];
+    }
+
+    private function finalize_order_notification( WC_Order $order, string $to_status, ?string $from_status, bool $is_new_order ): void {
+        $this->mark_sent_for_status( (int) $order->get_id(), $to_status, $from_status, $order );
+
+        if ( $is_new_order ) {
+            $this->update_order_meta_value( $order, '_tn_enh_sent', 1 );
+            $this->update_order_meta_value( $order, '_tn_enh_skip_once_status', $to_status );
+
+            if ( 'pending' === $to_status ) {
+                $this->update_order_meta_value( $order, '_tn_enh_skip_processing_once', 1 );
+            }
+            return;
+        }
+
+        if ( 'pending' === $to_status ) {
+            $this->update_order_meta_value( $order, '_tn_enh_skip_processing_once', 1 );
+            $this->update_order_meta_value( $order, '_tn_enh_skip_once_status', 'pending' );
+        }
+    }
+
+    private function finalize_queued_job( array $job ): void {
+        $context = isset( $job['context'] ) && is_array( $job['context'] ) ? $job['context'] : [];
+        if ( 'order' !== ( $context['type'] ?? '' ) ) {
+            return;
+        }
+
+        $order_id = isset( $context['order_id'] ) ? absint( $context['order_id'] ) : 0;
+        $to_status = isset( $context['to_status'] ) ? sanitize_key( $context['to_status'] ) : '';
+        $from_status = isset( $context['from_status'] ) && null !== $context['from_status']
+            ? sanitize_key( $context['from_status'] )
+            : null;
+        $is_new_order = ! empty( $context['is_new_order'] );
+
+        if ( $order_id <= 0 || '' === $to_status ) {
+            return;
+        }
+
+        $order = $this->resolve_order( $order_id );
+        if ( ! $order ) {
+            $this->debug_log( "finalize_queued_job: заказ {$order_id} не найден" );
+            return;
+        }
+
+        $this->finalize_order_notification( $order, $to_status, $from_status, $is_new_order );
+    }
+
     public function on_order_status_changed( $order_id, $from_status, $to_status, $order ) {
         if ( ! $this->is_wc_notifications_enabled() ) {
             return;
@@ -897,59 +1051,51 @@ class TN_Telegram_Notify_Enhanced {
 
         $this->debug_log( "on_order_status_changed called: order_id={$order_id}, from={$from_status}, to={$to_status}" );
 
-        $skip_once = get_post_meta( (int) $order_id, '_tn_enh_skip_once_status', true );
+        $order = $this->resolve_order( (int) $order_id, $order );
+        if ( ! $order ) {
+            return;
+        }
+
+        $skip_once = $this->get_order_meta_value( $order, '_tn_enh_skip_once_status' );
         if ( $skip_once && $skip_once === $to_status ) {
-            delete_post_meta( (int) $order_id, '_tn_enh_skip_once_status' );
+            $this->delete_order_meta_value( $order, '_tn_enh_skip_once_status' );
             $this->debug_log( "on_order_status_changed: пропускаем статус {$to_status} по флагу skip_once" );
             return;
         }
-        
+
         if ( 'pending' === $from_status && 'processing' === $to_status ) {
-            $skip_processing = get_post_meta( (int) $order_id, '_tn_enh_skip_processing_once', true );
+            $skip_processing = $this->get_order_meta_value( $order, '_tn_enh_skip_processing_once' );
             if ( $skip_processing ) {
-                delete_post_meta( (int) $order_id, '_tn_enh_skip_processing_once' );
+                $this->delete_order_meta_value( $order, '_tn_enh_skip_processing_once' );
                 $this->debug_log( "on_order_status_changed: пропускаем переход pending → processing для заказа {$order_id}" );
                 return;
             }
         }
 
-        if ( $this->has_sent_for_status( (int) $order_id, (string) $to_status, (string) $from_status ) ) {
+        if ( $this->has_sent_for_status( (int) $order_id, (string) $to_status, (string) $from_status, $order ) ) {
             $this->debug_log( "on_order_status_changed: уже отправлено для заказа {$order_id} ({$from_status} → {$to_status})" );
             return;
         }
 
-        if ( ! function_exists( 'wc_get_order' ) ) return;
-        if ( ! $order instanceof WC_Order ) {
-            $order = wc_get_order( $order_id );
-            if ( ! $order ) return;
-        }
-
-        $items = $order->get_items();
         $items_text_arr = [];
-        foreach ( $items as $item ) {
+        foreach ( $order->get_items() as $item ) {
             $qty = $item->get_quantity();
             $name = wp_strip_all_tags( $item->get_name() );
             $items_text_arr[] = $qty . ' × ' . $name;
         }
-        $items_text = implode( "
-", $items_text_arr );
+        $items_text = implode( "\n", $items_text_arr );
 
         $customer_name = trim( (string) $order->get_formatted_billing_full_name() ?: ( $order->get_billing_first_name() . ' ' . $order->get_billing_last_name() ) );
         $email = $order->get_billing_email();
         $phone = $order->get_billing_phone();
-        // Format total as plain text because wc_price may return HTML tags.
+
         $raw_total = (float) $order->get_total();
-        $currency = '';
-        if ( method_exists( $order, 'get_currency' ) ) {
-            $currency = $order->get_currency();
-        } elseif ( function_exists( 'get_woocommerce_currency' ) ) {
-            $currency = get_woocommerce_currency();
-        }
+        $currency = method_exists( $order, 'get_currency' ) ? $order->get_currency() : get_woocommerce_currency();
         $total_html = wc_price( $raw_total, [ 'currency' => $currency ] );
         $total_plain = wp_strip_all_tags( $total_html );
         $total_plain = str_replace( [ '&nbsp;', '&#160;', "\u{00A0}" ], ' ', $total_plain );
         $total = $this->normalize_plain_text( $total_plain );
-        $order_link = admin_url( 'post.php?post=' . $order->get_id() . '&action=edit' );
+        $order_link = $this->get_order_edit_url( $order );
 
         $parse_mode = get_option( $this->option_prefix . 'parse_mode', 'HTML' );
         if ( ! in_array( $parse_mode, [ 'HTML', 'MarkdownV2' ], true ) ) {
@@ -962,43 +1108,39 @@ class TN_Telegram_Notify_Enhanced {
         $total = $this->prepare_text_for_parse_mode( $total, $parse_mode );
         $items_text = $this->prepare_text_for_parse_mode( $items_text, $parse_mode );
         $order_link = $this->prepare_url_for_parse_mode( $order_link, $parse_mode );
+        $from_status_prepared = $this->prepare_text_for_parse_mode( (string) $from_status, $parse_mode );
+        $to_status_prepared = $this->prepare_text_for_parse_mode( (string) $to_status, $parse_mode );
 
         $template = get_option( $this->option_prefix . 'order_template' );
         if ( ! $template ) {
-            $template = "<b>Новый заказ #{order_id}</b>
-Статус: {from_status} → {to_status}
-Клиент: {customer_name}
-Телефон: {phone}
-E-mail: {email}
-Сумма: {total}
-Товары:
-{items}
-Ссылка: {order_link}";
+            $template = $this->get_default_order_template();
         }
 
         $placeholders = [
-            '{order_id}' => $order->get_id(),
-            '{from_status}' => $from_status,
-            '{to_status}' => $to_status,
+            '{order_id}'      => $order->get_id(),
+            '{from_status}'   => $from_status_prepared,
+            '{to_status}'     => $to_status_prepared,
             '{customer_name}' => $customer_name,
-            '{phone}' => $phone,
-            '{email}' => $email,
-            '{total}' => $total,
-            '{items}' => $items_text,
-            '{order_link}' => $order_link,
+            '{phone}'         => $phone,
+            '{email}'         => $email,
+            '{total}'         => $total,
+            '{items}'         => $items_text,
+            '{order_link}'    => $order_link,
         ];
 
         $message = strtr( $template, $placeholders );
         $message = $this->apply_filters_safely( 'tn_order_message', $message, $order );
 
-        $res = $this->send_message_to_configured_chats( $message );
-        if ( ! is_wp_error( $res ) ) {
-            // Record that this transition notification has been sent once.
-            $this->mark_sent_for_status( (int) $order->get_id(), (string) $to_status, (string) $from_status );
-            if ( 'pending' === $to_status ) {
-                update_post_meta( (int) $order->get_id(), '_tn_enh_skip_processing_once', 1 );
-                update_post_meta( (int) $order->get_id(), '_tn_enh_skip_once_status', 'pending' );
-            }
+        $context = $this->build_order_queue_context( $order, (string) $to_status, (string) $from_status, false );
+        $res = $this->send_message_to_configured_chats( $message, $context );
+
+        if ( is_wp_error( $res ) ) {
+            $this->debug_log( "on_order_status_changed: ошибка отправки для заказа {$order_id}: " . $res->get_error_message() );
+            return;
+        }
+
+        if ( empty( $res['queued'] ) ) {
+            $this->finalize_order_notification( $order, (string) $to_status, (string) $from_status, false );
         }
     }
 
@@ -1007,34 +1149,29 @@ E-mail: {email}
             return;
         }
 
-        if ( ! function_exists( 'wc_get_order' ) ) {
-            $this->debug_log( 'on_order_created_fallback: wc_get_order недоступна' );
-            return;
-        }
-
-        $order = wc_get_order( $order_id );
+        $order = $this->resolve_order( (int) $order_id );
         if ( ! $order ) {
             $this->debug_log( "on_order_created_fallback: не удалось получить WC_Order для ID {$order_id}" );
             return;
         }
 
         $to_status = (string) $order->get_status();
-        if ( $this->has_sent_for_status( (int) $order->get_id(), $to_status, null ) ) {
+        if ( $this->has_sent_for_status( (int) $order->get_id(), $to_status, null, $order ) ) {
             $this->debug_log( "on_order_created_fallback: уже отправлено для заказа {$order->get_id()} (to_status={$to_status})" );
             return;
         }
 
-        $this->debug_log( "on_order_created_fallback called: order_id={$order->get_id()}, status=" . $to_status );
+        $this->debug_log( "on_order_created_fallback called: order_id={$order->get_id()}, status={$to_status}" );
 
-        if ( get_post_meta( $order->get_id(), '_tn_enh_sent', true ) ) {
+        if ( $this->get_order_meta_value( $order, '_tn_enh_sent' ) ) {
             $this->debug_log( "on_order_created_fallback: уже отправлено для заказа {$order->get_id()}" );
             return;
         }
 
         $items_arr = [];
         foreach ( $order->get_items() as $item ) {
-            $qty = method_exists( $item, 'get_quantity' ) ? $item->get_quantity() : ( isset( $item['qty'] ) ? $item['qty'] : 1 );
-            $name = method_exists( $item, 'get_name' ) ? $item->get_name() : ( is_array( $item ) && isset( $item['name'] ) ? $item['name'] : '' );
+            $qty = method_exists( $item, 'get_quantity' ) ? $item->get_quantity() : 1;
+            $name = method_exists( $item, 'get_name' ) ? $item->get_name() : '';
             $items_arr[] = "{$qty} × {$name}";
         }
         $items_text_raw = implode( "\n", $items_arr );
@@ -1052,7 +1189,7 @@ E-mail: {email}
         $raw_customer = trim( (string) $order->get_formatted_billing_full_name() ?: ( $order->get_billing_first_name() . ' ' . $order->get_billing_last_name() ) );
         $raw_phone = $order->get_billing_phone();
         $raw_email = $order->get_billing_email();
-        $order_link_raw = admin_url( 'post.php?post=' . $order->get_id() . '&action=edit' );
+        $order_link_raw = $this->get_order_edit_url( $order );
 
         $customer_name = $this->prepare_text_for_parse_mode( $raw_customer, $parse_mode );
         $phone = $this->prepare_text_for_parse_mode( $raw_phone, $parse_mode );
@@ -1060,11 +1197,12 @@ E-mail: {email}
         $total = $this->prepare_text_for_parse_mode( $order_total, $parse_mode );
         $items_text = $this->prepare_text_for_parse_mode( $items_text_raw, $parse_mode );
         $order_link = $this->prepare_url_for_parse_mode( $order_link_raw, $parse_mode );
+        $to_status_prepared = $this->prepare_text_for_parse_mode( $to_status, $parse_mode );
 
         $placeholders = [
             '{order_id}'      => $order->get_id(),
             '{from_status}'   => '',
-            '{to_status}'     => $order->get_status(),
+            '{to_status}'     => $to_status_prepared,
             '{customer_name}' => $customer_name,
             '{phone}'         => $phone,
             '{email}'         => $email,
@@ -1075,41 +1213,25 @@ E-mail: {email}
 
         $template = get_option( $this->option_prefix . 'order_template' );
         if ( ! $template ) {
-            $template = "<b>Новый заказ #{order_id}</b>
-Статус: {to_status}
-Клиент: {customer_name}
-Телефон: {phone}
-E-mail: {email}
-Сумма: {total}
-Товары:
-{items}
-Ссылка: {order_link}";
+            $template = $this->get_default_order_template();
         }
 
         $message = strtr( $template, $placeholders );
         $message = $this->apply_filters_safely( 'tn_order_message', $message, $order );
 
-        $res = $this->send_message_to_configured_chats( $message );
+        $context = $this->build_order_queue_context( $order, $to_status, null, true );
+        $res = $this->send_message_to_configured_chats( $message, $context );
 
         if ( is_wp_error( $res ) ) {
             $this->debug_log( "on_order_created_fallback: ошибка отправки для заказа {$order->get_id()}: " . $res->get_error_message() );
-        } else {
-            $this->mark_sent_for_status( (int) $order->get_id(), $to_status, null );
-            update_post_meta( $order->get_id(), '_tn_enh_sent', 1 );
-            update_post_meta( $order->get_id(), '_tn_enh_skip_once_status', $to_status );
-            if ( 'pending' === $to_status ) {
-                update_post_meta( $order->get_id(), '_tn_enh_skip_processing_once', 1 );
-            }
-            $this->debug_log( "on_order_created_fallback: уведомление отправлено для заказа {$order->get_id()}" );
+            return;
         }
-    }
 
-    public function on_order_payment_complete( $order_id ) {
-        $this->on_order_created_fallback( $order_id );
-    }
+        if ( empty( $res['queued'] ) ) {
+            $this->finalize_order_notification( $order, $to_status, null, true );
+        }
 
-    public function on_order_status_specific( $order_id ) {
-        $this->on_order_created_fallback( $order_id );
+        $this->debug_log( "on_order_created_fallback: уведомление принято к отправке для заказа {$order->get_id()}" );
     }
 
     public function on_cf7_mail_sent( $contact_form ) {
@@ -1141,7 +1263,7 @@ E-mail: {email}
         $sanitized_data = [];
         $all_fields_lines = [];
         foreach ( $raw_data as $k => $v ) {
-            if ( in_array( $k, [ '_wpcf7', '_wpcf7_version', '_wpnonce', '_wpcf7_unit_tag', '_wpcf7_is_ajax_call' ], true ) ) {
+            if ( ! is_string( $k ) || '' === $k || str_starts_with( $k, '_' ) ) {
                 continue;
             }
 
@@ -1189,7 +1311,7 @@ E-mail: {email}
         $this->send_message_to_configured_chats( $message );
     }
 
-    private function enqueue_message( array $chats, string $text, string $parse_mode ) {
+    private function enqueue_message( array $chats, string $text, string $parse_mode, array $context = [] ) {
         $queue = $this->get_queue();
         $now = time();
 
@@ -1208,11 +1330,16 @@ E-mail: {email}
             'attempts'     => 0,
             'created'      => $now,
             'next_attempt' => $now,
+            'context'      => $context,
         ];
 
         $this->set_queue( $queue );
         $this->schedule_queue_processing( $now + 5, 'enqueue' );
-        return true;
+
+        return [
+            'queued'     => true,
+            'chat_count' => count( $chats ),
+        ];
     }
 
     public function process_message_queue() {
@@ -1255,15 +1382,23 @@ E-mail: {email}
                 continue;
             }
 
-            $res = $this->do_send( $job['chats'], $job['text'], $job['parse_mode'], false );
+            $res = $this->do_send( $job['chats'], $job['text'], $job['parse_mode'], true );
             if ( is_wp_error( $res ) ) {
+                $error_data = $res->get_error_data();
+                if ( is_array( $error_data ) && ! empty( $error_data['failed_chats'] ) && is_array( $error_data['failed_chats'] ) ) {
+                    $job['chats'] = array_values( array_unique( array_filter( array_map( 'strval', $error_data['failed_chats'] ) ) ) );
+                }
+
                 $job['attempts']++;
                 $job['next_attempt'] = $now + $this->get_queue_retry_delay( $job['attempts'] );
                 $new_queue[] = $job;
                 $next_run_timestamp = is_null( $next_run_timestamp ) ? $job['next_attempt'] : min( $next_run_timestamp, $job['next_attempt'] );
                 update_option( $this->option_prefix . 'last_error', $res->get_error_message() );
                 $this->debug_log( 'process_queue retry: ' . $res->get_error_message() );
+                continue;
             }
+
+            $this->finalize_queued_job( $job );
         }
 
         $this->set_queue( $new_queue );
@@ -1351,62 +1486,97 @@ E-mail: {email}
 
     private function do_send( array $chats, string $text, string $parse_mode, bool $blocking = true ) {
         $token = get_option( $this->option_prefix . 'bot_token' );
-        if ( defined( 'TN_TELEGRAM_BOT_TOKEN' ) && TN_TELEGRAM_BOT_TOKEN ) $token = TN_TELEGRAM_BOT_TOKEN;
-        if ( empty( $token ) ) return new WP_Error( 'tn_no_token', __( 'Bot token not configured', 'telegram-notify' ) );
+        if ( defined( 'TN_TELEGRAM_BOT_TOKEN' ) && TN_TELEGRAM_BOT_TOKEN ) {
+            $token = TN_TELEGRAM_BOT_TOKEN;
+        }
 
-        $results = [];
-        $all_success = true;
+        if ( empty( $token ) ) {
+            return new WP_Error( 'tn_no_token', __( 'Bot token not configured', 'telegram-notify' ) );
+        }
+
+        $sent = 0;
+        $failed_chats = [];
+        $errors = [];
+
         foreach ( $chats as $chat ) {
-            $chat = trim( $chat );
-            if ( $chat === '' ) continue;
+            $chat = trim( (string) $chat );
+            if ( '' === $chat ) {
+                continue;
+            }
 
             $url = 'https://api.telegram.org/bot' . rawurlencode( $token ) . '/sendMessage';
-
-            $body = [ 'chat_id' => $chat, 'text' => $text, 'parse_mode' => $parse_mode, 'disable_web_page_preview' => true ];
-
-            $args = [ 'headers' => [ 'Content-Type' => 'application/json; charset=utf-8' ], 'body' => wp_json_encode( $body ), 'timeout' => 15, 'blocking' => $blocking ];
+            $body = [
+                'chat_id'                  => $chat,
+                'text'                     => $text,
+                'parse_mode'               => $parse_mode,
+                'disable_web_page_preview' => true,
+            ];
+            $args = [
+                'headers'  => [ 'Content-Type' => 'application/json; charset=utf-8' ],
+                'body'     => wp_json_encode( $body ),
+                'timeout'  => 15,
+                'blocking' => $blocking,
+            ];
 
             $response = wp_remote_post( $url, $args );
 
             if ( is_wp_error( $response ) ) {
-                $msg = 'HTTP error: ' . $response->get_error_message();
-                update_option( $this->option_prefix . 'last_error', $msg );
-                $this->debug_log( "do_send error: {$msg} (chat={$chat})" );
-                $results[ $chat ] = $response;
-                $all_success = false;
+                $message = 'HTTP error: ' . $response->get_error_message();
+                $failed_chats[] = $chat;
+                $errors[] = "{$chat}: {$message}";
+                $this->debug_log( "do_send error: {$message} (chat={$chat})" );
                 continue;
             }
 
-            if ( true === $response ) {
+            if ( true === $response && ! $blocking ) {
+                $sent++;
                 $this->debug_log( "do_send non-blocking request queued: chat={$chat}" );
-                $results[ $chat ] = [ 'http_code' => null, 'body' => null ];
                 continue;
             }
 
             $code = (int) wp_remote_retrieve_response_code( $response );
-            $body = wp_remote_retrieve_body( $response );
-            $results[ $chat ] = [ 'http_code' => $code, 'body' => $body ];
+            $response_body = wp_remote_retrieve_body( $response );
+            $decoded = json_decode( $response_body, true );
 
-            $decoded = json_decode( $body, true );
-            if ( is_array( $decoded ) && isset( $decoded['ok'] ) && $decoded['ok'] === false ) {
-                $desc = $decoded['description'] ?? 'unknown';
-                $err = "Telegram API error for chat {$chat}: {$desc}";
-                update_option( $this->option_prefix . 'last_error', $err );
-                $this->debug_log( "do_send api_error: {$err}" );
-                $all_success = false;
-            } else {
-                $this->debug_log( "do_send success: chat={$chat}, http={$code}" );
-                if ( 200 !== $code ) {
-                    $all_success = false;
-                }
+            if ( 200 !== $code || ! is_array( $decoded ) || empty( $decoded['ok'] ) ) {
+                $description = is_array( $decoded ) && isset( $decoded['description'] )
+                    ? sanitize_text_field( $decoded['description'] )
+                    : sprintf( 'HTTP %d', $code );
+
+                $failed_chats[] = $chat;
+                $errors[] = "{$chat}: {$description}";
+                $this->debug_log( "do_send api_error: chat={$chat}, {$description}" );
+                continue;
             }
+
+            $sent++;
+            $this->debug_log( "do_send success: chat={$chat}, http={$code}" );
         }
 
-        if ( $blocking && $all_success ) {
+        if ( ! empty( $failed_chats ) ) {
+            $message = sprintf(
+                /* translators: %s: one or more Telegram delivery errors */
+                __( 'Telegram delivery failed: %s', 'telegram-notify' ),
+                implode( '; ', $errors )
+            );
+            update_option( $this->option_prefix . 'last_error', $message );
+
+            return new WP_Error(
+                'tn_send_failed',
+                $message,
+                [
+                    'failed_chats' => array_values( array_unique( $failed_chats ) ),
+                    'sent'         => $sent,
+                ]
+            );
+        }
+
+        delete_option( $this->option_prefix . 'last_error' );
+        if ( $blocking ) {
             $this->clear_debug_log();
         }
 
-        return $results;
+        return [ 'sent' => $sent ];
     }
 
     private function is_wc_notifications_enabled(): bool {
@@ -1486,7 +1656,7 @@ E-mail: {email}
         return $value;
     }
 
-    private function send_message_to_configured_chats( string $message ) {
+    private function send_message_to_configured_chats( string $message, array $context = [] ) {
         $raw_chats = get_option( $this->option_prefix . 'chat_ids' );
         if ( defined( 'TN_TELEGRAM_CHAT_IDS' ) && TN_TELEGRAM_CHAT_IDS ) {
             $raw_chats = TN_TELEGRAM_CHAT_IDS;
@@ -1523,7 +1693,7 @@ E-mail: {email}
         $send_async = $send_async ? true : false;
 
         if ( $send_async ) {
-            return $this->enqueue_message( $chats, $message, $parse_mode );
+            return $this->enqueue_message( $chats, $message, $parse_mode, $context );
         }
 
         return $this->do_send( $chats, $message, $parse_mode, true );
@@ -1531,95 +1701,29 @@ E-mail: {email}
 
 
     private function escape_markdown_v2( string $text ): string {
-        // Characters that must be escaped when using MarkdownV2.
-        $chars = [ '_','*','[',']','(',')','~','`','>','#','+','-','=','|','{','}','.','!' ];
-        $escaped = '';
-        $len = mb_strlen( $text );
-        for ( $i = 0; $i < $len; $i++ ) {
-            $ch = mb_substr( $text, $i, 1 );
-            if ( in_array( $ch, $chars, true ) ) {
-                $escaped .= '\\' . $ch; // add a backslash before the symbol
-            } else {
-                $escaped .= $ch;
-            }
-        }
-        return $escaped;
+        return strtr( $text, [
+            '\\' => '\\\\',
+            '_'  => '\_',
+            '*'  => '\*',
+            '['  => '\[',
+            ']'  => '\]',
+            '('  => '\(',
+            ')'  => '\)',
+            '~'  => '\~',
+            '`'  => '\`',
+            '>'  => '\>',
+            '#'  => '\#',
+            '+'  => '\+',
+            '-'  => '\-',
+            '='  => '\=',
+            '|'  => '\|',
+            '{'  => '\{',
+            '}'  => '\}',
+            '.'  => '\.',
+            '!'  => '\!',
+        ] );
     }
 
-    public function admin_resend_order() {
-        if ( ! current_user_can( 'manage_options' ) ) wp_die( 'Нет доступа' );
-        $order_id = isset( $_GET['order_id'] ) ? intval( $_GET['order_id'] ) : 0;
-        $nonce = isset( $_GET['_wpnonce'] ) ? $_GET['_wpnonce'] : '';
-        if ( ! wp_verify_nonce( $nonce, 'tn_resend_order_' . $order_id ) ) wp_die( 'Неверный nonce' );
-        if ( $order_id <= 0 ) wp_die( 'order_id не указан' );
-
-        if ( ! function_exists( 'wc_get_order' ) ) wp_die( 'WooCommerce недоступен' );
-        $order = wc_get_order( $order_id );
-        if ( ! $order ) wp_die( 'Заказ не найден' );
-
-        $items_arr = [];
-        foreach ( $order->get_items() as $item ) {
-            $qty = method_exists( $item, 'get_quantity' ) ? $item->get_quantity() : ( isset( $item['qty'] ) ? $item['qty'] : 1 );
-            $name = method_exists( $item, 'get_name' ) ? $item->get_name() : ( is_array( $item ) && isset( $item['name'] ) ? $item['name'] : '' );
-            $items_arr[] = "{$qty} × {$name}";
-        }
-        $items_text_raw = implode( "\n", $items_arr );
-
-        $template = get_option( $this->option_prefix . 'order_template' );
-        if ( ! $template ) {
-            $template = "<b>Новый заказ #{order_id}</b>
-Статус: {to_status}
-Клиент: {customer_name}
-Телефон: {phone}
-E-mail: {email}
-Сумма: {total}
-Товары:
-{items}
-Ссылка: {order_link}";
-        }
-
-        $order_total_formatted = $order->get_formatted_order_total();
-        $order_total_plain = wp_strip_all_tags( $order_total_formatted );
-        $order_total_plain = str_replace( [ '&nbsp;', '&#160;', "\u{00A0}" ], ' ', $order_total_plain );
-        $order_total = $this->normalize_plain_text( $order_total_plain );
-
-        $parse_mode = get_option( $this->option_prefix . 'parse_mode', 'HTML' );
-        if ( ! in_array( $parse_mode, [ 'HTML', 'MarkdownV2' ], true ) ) {
-            $parse_mode = 'HTML';
-        }
-
-        $raw_customer = trim( (string) $order->get_formatted_billing_full_name() ?: ( $order->get_billing_first_name() . ' ' . $order->get_billing_last_name() ) );
-        $raw_phone = $order->get_billing_phone();
-        $raw_email = $order->get_billing_email();
-        $order_link_raw = admin_url( 'post.php?post=' . $order->get_id() . '&action=edit' );
-
-        $customer_name = $this->prepare_text_for_parse_mode( $raw_customer, $parse_mode );
-        $phone = $this->prepare_text_for_parse_mode( $raw_phone, $parse_mode );
-        $email = $this->prepare_text_for_parse_mode( $raw_email, $parse_mode );
-        $total = $this->prepare_text_for_parse_mode( $order_total, $parse_mode );
-        $items_text = $this->prepare_text_for_parse_mode( $items_text_raw, $parse_mode );
-        $order_link = $this->prepare_url_for_parse_mode( $order_link_raw, $parse_mode );
-
-        $placeholders = [
-            '{order_id}' => $order->get_id(),
-            '{to_status}' => $order->get_status(),
-            '{customer_name}' => $customer_name,
-            '{phone}' => $phone,
-            '{email}' => $email,
-            '{total}' => $total,
-            '{items}' => $items_text,
-            '{order_link}' => $order_link,
-        ];
-
-        $message = strtr( $template, $placeholders );
-        $this->debug_log( "admin_resend_order: manual send order {$order->get_id()}" );
-
-        $this->send_message_to_configured_chats( $message );
-
-        $redirect = admin_url( 'post.php?post=' . $order->get_id() . '&action=edit' );
-        wp_safe_redirect( $redirect );
-        exit;
-    }
     private function build_status_key( string $to_status ): string {
         return 'status:' . sanitize_key( $to_status );
     }
@@ -1627,8 +1731,11 @@ E-mail: {email}
     /**
      * Checks if a notification has already been sent for the order and status.
      */
-    private function has_sent_for_status( int $order_id, string $to_status, ?string $from_status = null ): bool {
-        $sent = get_post_meta( $order_id, '_tn_enh_sent_statuses', true );
+    private function has_sent_for_status( int $order_id, string $to_status, ?string $from_status = null, $order = null ): bool {
+        $order = $this->resolve_order( $order_id, $order );
+        $storage = $order ?: $order_id;
+
+        $sent = $this->get_order_meta_value( $storage, '_tn_enh_sent_statuses' );
         if ( ! is_array( $sent ) ) {
             $sent = [];
         }
@@ -1646,7 +1753,7 @@ E-mail: {email}
                 continue;
             }
 
-            if ( strpos( $stored_key, ':' ) !== false ) {
+            if ( is_string( $stored_key ) && false !== strpos( $stored_key, ':' ) ) {
                 [ $stored_to ] = explode( ':', $stored_key, 2 );
                 if ( $stored_to === $to_status ) {
                     unset( $sent[ $idx ] );
@@ -1658,18 +1765,18 @@ E-mail: {email}
         if ( $needs_upgrade ) {
             $sent[] = $normalized_key;
             $sent = array_values( array_unique( $sent ) );
-            update_post_meta( $order_id, '_tn_enh_sent_statuses', $sent );
+            $this->update_order_meta_value( $storage, '_tn_enh_sent_statuses', $sent );
             return true;
         }
 
         return false;
     }
 
-    /**
-     * Indicates that a notification has been sent for the status of the order.
-     */
-    private function mark_sent_for_status( int $order_id, string $to_status, ?string $from_status = null ): void {
-        $sent = get_post_meta( $order_id, '_tn_enh_sent_statuses', true );
+    private function mark_sent_for_status( int $order_id, string $to_status, ?string $from_status = null, $order = null ): void {
+        $order = $this->resolve_order( $order_id, $order );
+        $storage = $order ?: $order_id;
+
+        $sent = $this->get_order_meta_value( $storage, '_tn_enh_sent_statuses' );
         if ( ! is_array( $sent ) ) {
             $sent = [];
         }
@@ -1681,7 +1788,8 @@ E-mail: {email}
                 unset( $sent[ $idx ] );
                 continue;
             }
-            if ( strpos( $stored_key, ':' ) !== false ) {
+
+            if ( is_string( $stored_key ) && false !== strpos( $stored_key, ':' ) ) {
                 [ $stored_to ] = explode( ':', $stored_key, 2 );
                 if ( $stored_to === $to_status ) {
                     unset( $sent[ $idx ] );
@@ -1692,9 +1800,10 @@ E-mail: {email}
         if ( ! in_array( $normalized_key, $sent, true ) ) {
             $sent[] = $normalized_key;
             $sent = array_values( array_unique( $sent ) );
-            update_post_meta( $order_id, '_tn_enh_sent_statuses', $sent );
+            $this->update_order_meta_value( $storage, '_tn_enh_sent_statuses', $sent );
         }
     }
+
     private function debug_log( string $text ) {
         try {
             $entries = get_transient( $this->debug_transient_key );
