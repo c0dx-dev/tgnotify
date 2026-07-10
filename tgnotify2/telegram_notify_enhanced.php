@@ -3,7 +3,7 @@
  * Plugin Name: c0dx: Telegram Notify Enhanced
  * Plugin URI:  https://github.com/c0dx-dev/tgnotify
  * Description: Sends WooCommerce order and Contact Form 7 submission notifications to Telegram. Supports message templates with placeholders, multiple chat IDs, parse mode selection (HTML / MarkdownV2), asynchronous dispatching, i18n, and customization filters. Compatible with WP 6+ and PHP 8+.
- * Version:     2.2.0
+ * Version:     2.3.0
  * Author:      c0dx-dev (c0dx.ru)
  * Author URI:  https://c0dx.ru/
  * Text Domain: telegram-notify
@@ -782,7 +782,7 @@ class TN_Telegram_Notify_Enhanced {
             $this->set_admin_notice( $summary, 'success' );
         }
 
-        $redirect = admin_url( 'options-general.php?page=' . $this->settings_page_slug );
+        $redirect = $this->get_settings_page_url();
         wp_safe_redirect( $redirect );
         exit;
     }
@@ -803,7 +803,7 @@ class TN_Telegram_Notify_Enhanced {
             $this->set_admin_notice( __( 'Очередь уже пуста.', 'telegram-notify' ), 'info' );
         }
 
-        wp_safe_redirect( admin_url( 'options-general.php?page=' . $this->settings_page_slug ) );
+        wp_safe_redirect( $this->get_settings_page_url() );
         exit;
     }
 
@@ -858,7 +858,7 @@ class TN_Telegram_Notify_Enhanced {
             $this->set_admin_notice( $summary, 'success' );
         }
 
-        wp_safe_redirect( admin_url( 'options-general.php?page=' . $this->settings_page_slug ) );
+        wp_safe_redirect( $this->get_settings_page_url() );
         exit;
     }
 
@@ -912,7 +912,7 @@ class TN_Telegram_Notify_Enhanced {
             $this->set_admin_notice( $summary, 'success' );
         }
 
-        wp_safe_redirect( admin_url( 'options-general.php?page=' . $this->settings_page_slug ) );
+        wp_safe_redirect( $this->get_settings_page_url() );
         exit;
     }
 
@@ -1657,11 +1657,7 @@ class TN_Telegram_Notify_Enhanced {
     }
 
     private function send_message_to_configured_chats( string $message, array $context = [] ) {
-        $raw_chats = get_option( $this->option_prefix . 'chat_ids' );
-        if ( defined( 'TN_TELEGRAM_CHAT_IDS' ) && TN_TELEGRAM_CHAT_IDS ) {
-            $raw_chats = TN_TELEGRAM_CHAT_IDS;
-        }
-        $chats = $this->split_chat_ids( (string) $raw_chats );
+        $chats = $this->get_configured_chat_ids();
         if ( empty( $chats ) ) {
             return new WP_Error( 'tn_no_chat', __( 'Chat ID(s) not configured', 'telegram-notify' ) );
         }
