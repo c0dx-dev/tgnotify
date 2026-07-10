@@ -1,5 +1,6 @@
 # c0dx: Telegram Notify Enhanced
 
+WordPress‑плагин для отправки уведомлений о заказах WooCommerce и заявках Contact Form 7 в Telegram.
 WordPress plugin for sending WooCommerce order notifications and Contact Form 7 submissions to Telegram.
 
 Current plugin version: **2.3.0**.
