@@ -1,0 +1,40 @@
+name: Apply chat recipient UI update
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+
+permissions:
+  contents: write
+
+jobs:
+  apply-update:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/chat-recipient-ui-2.3.0
+          fetch-depth: 0
+
+      - name: Apply update
+        run: |
+          set -euo pipefail
+          python3 .github/apply-chat-recipient-ui.py
+          php -l tgnotify2/telegram_notify_enhanced.php
+
+      - name: Commit changes
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tgnotify2/telegram_notify_enhanced.php
+          git commit -m "Add named Telegram recipients and admin menu"
+          git push origin HEAD:feature/chat-recipient-ui-2.3.0
