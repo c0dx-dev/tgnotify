@@ -29,6 +29,16 @@ jobs:
         shell: bash
         run: |
           set +e
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('.github/apply-chat-recipient-ui.py')
+          text = path.read_text(encoding='utf-8')
+          old = "text, count = re.subn(pattern, replacement, text, count=1, flags=re.S)"
+          new = "text, count = re.subn(pattern, lambda _match: replacement, text, count=1, flags=re.S)"
+          if old not in text:
+              raise SystemExit('regex helper line not found')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
           python3 .github/apply-chat-recipient-ui.py > /tmp/tn-transform.log 2>&1
           status=$?
           cat /tmp/tn-transform.log
