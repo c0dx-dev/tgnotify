@@ -46,6 +46,7 @@ class TN_Telegram_Notify_Enhanced {
 
         add_action( 'init', [ $this, 'load_textdomain' ] );
         add_action( 'admin_menu', [ $this, 'add_admin_menu' ] );
+        add_filter( 'plugin_action_links_' . plugin_basename( __FILE__ ), [ $this, 'plugin_action_links' ] );
         add_action( 'admin_init', [ $this, 'register_settings' ] );
         add_action( 'admin_post_tn_enh_save_test_message', [ $this, 'handle_test_message' ] );
         add_action( 'admin_post_tn_enh_clear_queue', [ $this, 'handle_clear_queue' ] );
@@ -93,13 +94,30 @@ class TN_Telegram_Notify_Enhanced {
     }
 
     public function add_admin_menu() {
-        add_options_page(
+        add_menu_page(
             __( 'Telegram Notify', 'telegram-notify' ),
             __( 'Telegram Notify', 'telegram-notify' ),
             'manage_options',
             $this->settings_page_slug,
-            [ $this, 'settings_page' ]
+            [ $this, 'settings_page' ],
+            'dashicons-format-chat',
+            81
         );
+    }
+
+    private function get_settings_page_url(): string {
+        return admin_url( 'admin.php?page=' . $this->settings_page_slug );
+    }
+
+    public function plugin_action_links( array $links ): array {
+        $settings_link = sprintf(
+            '<a href="%1$s">%2$s</a>',
+            esc_url( $this->get_settings_page_url() ),
+            esc_html__( 'Настройки', 'telegram-notify' )
+        );
+
+        array_unshift( $links, $settings_link );
+        return $links;
     }
 
     public function register_settings() {
@@ -117,6 +135,12 @@ class TN_Telegram_Notify_Enhanced {
             'type'              => 'string',
             'sanitize_callback' => [ $this, 'sanitize_chat_ids' ],
             'default'           => '',
+        ] );
+
+        register_setting( $this->settings_group, $this->option_prefix . 'chat_recipients', [
+            'type'              => 'array',
+            'sanitize_callback' => [ $this, 'sanitize_chat_recipients' ],
+            'default'           => [],
         ] );
 
         register_setting( $this->settings_group, $this->option_prefix . 'parse_mode', [
@@ -263,15 +287,156 @@ class TN_Telegram_Notify_Enhanced {
         return preg_replace( '/[^0-9A-Za-z:_-]/', '', $value );
     }
 
-    public function sanitize_chat_ids( $value ): string {
-        if ( ! is_string( $value ) ) {
-            return '';
+    private function sanitize_single_chat_id( $value ): string {
+        $value = is_scalar( $value ) ? trim( (string) $value ) : '';
+
+        if ( preg_match( '/^-?\d+$/', $value ) ) {
+            return $value;
         }
-        $ids = array_filter( array_map( 'trim', preg_split( '/[\r\n,;]+/', $value ) ?: [] ) );
-        $ids = array_map( static function( $id ) {
-            return preg_replace( '/[^0-9A-Za-z_@\-]/', '', $id );
-        }, $ids );
-        return implode( "\n", array_unique( array_filter( $ids ) ) );
+
+        if ( preg_match( '/^@[A-Za-z0-9_]{5,}$/', $value ) ) {
+            return $value;
+        }
+
+        return '';
+    }
+
+    private function parse_chat_id_list( $value ): array {
+        if ( is_array( $value ) ) {
+            $value = implode( "\n", array_map( 'strval', $value ) );
+        }
+
+        if ( ! is_string( $value ) ) {
+            return [];
+        }
+
+        $parts = preg_split( '/[\r\n,;]+/', $value ) ?: [];
+        $ids = [];
+
+        foreach ( $parts as $part ) {
+            $id = $this->sanitize_single_chat_id( $part );
+            if ( '' !== $id ) {
+                $ids[] = $id;
+            }
+        }
+
+        return array_values( array_unique( $ids ) );
+    }
+
+    public function sanitize_chat_ids( $value ): string {
+        return implode( "\n", $this->parse_chat_id_list( $value ) );
+    }
+
+    public function sanitize_chat_recipients( $value ): array {
+        if ( ! is_array( $value ) ) {
+            update_option( $this->option_prefix . 'chat_ids', '', false );
+            return [];
+        }
+
+        $recipients = [];
+
+        foreach ( $value as $row ) {
+            if ( ! is_array( $row ) ) {
+                continue;
+            }
+
+            $id = $this->sanitize_single_chat_id( $row['id'] ?? '' );
+            if ( '' === $id ) {
+                continue;
+            }
+
+            $label = sanitize_text_field( (string) ( $row['label'] ?? '' ) );
+
+            if ( ! isset( $recipients[ $id ] ) ) {
+                $recipients[ $id ] = [
+                    'id'    => $id,
+                    'label' => $label,
+                ];
+            }
+        }
+
+        $recipients = array_values( $recipients );
+        $legacy_ids = array_map(
+            static function( array $recipient ): string {
+                return (string) $recipient['id'];
+            },
+            $recipients
+        );
+
+        update_option(
+            $this->option_prefix . 'chat_ids',
+            implode( "\n", $legacy_ids ),
+            false
+        );
+
+        return $recipients;
+    }
+
+    private function get_chat_recipients(): array {
+        $stored = get_option( $this->option_prefix . 'chat_recipients', [] );
+        $recipients = $this->sanitize_chat_recipients_without_side_effects( $stored );
+
+        if ( ! empty( $recipients ) ) {
+            return $recipients;
+        }
+
+        $legacy_ids = $this->parse_chat_id_list(
+            get_option( $this->option_prefix . 'chat_ids', '' )
+        );
+
+        return array_map(
+            static function( string $id ): array {
+                return [
+                    'id'    => $id,
+                    'label' => '',
+                ];
+            },
+            $legacy_ids
+        );
+    }
+
+    private function sanitize_chat_recipients_without_side_effects( $value ): array {
+        if ( ! is_array( $value ) ) {
+            return [];
+        }
+
+        $recipients = [];
+
+        foreach ( $value as $row ) {
+            if ( ! is_array( $row ) ) {
+                continue;
+            }
+
+            $id = $this->sanitize_single_chat_id( $row['id'] ?? '' );
+            if ( '' === $id ) {
+                continue;
+            }
+
+            if ( ! isset( $recipients[ $id ] ) ) {
+                $recipients[ $id ] = [
+                    'id'    => $id,
+                    'label' => sanitize_text_field( (string) ( $row['label'] ?? '' ) ),
+                ];
+            }
+        }
+
+        return array_values( $recipients );
+    }
+
+    private function get_configured_chat_ids(): array {
+        if ( defined( 'TN_TELEGRAM_CHAT_IDS' ) && TN_TELEGRAM_CHAT_IDS ) {
+            return $this->parse_chat_id_list( TN_TELEGRAM_CHAT_IDS );
+        }
+
+        $recipients = $this->get_chat_recipients();
+        $ids = array_map(
+            static function( array $recipient ): string {
+                return (string) ( $recipient['id'] ?? '' );
+            },
+            $recipients
+        );
+
+        return array_values( array_unique( array_filter( $ids ) ) );
     }
 
     public function sanitize_parse_mode( $value ): string {
@@ -343,30 +508,97 @@ class TN_Telegram_Notify_Enhanced {
                 esc_attr( $option_name ),
                 esc_html__( 'Токен задан через константу TN_TELEGRAM_BOT_TOKEN и не выводится в интерфейсе.', 'telegram-notify' )
             );
-            return;
+        } else {
+            printf(
+                '<input type="password" id="tn_enh_bot_token" name="%1$s" value="%2$s" class="regular-text" autocomplete="new-password" />' .
+                '<p class="description">%3$s</p>',
+                esc_attr( $option_name ),
+                esc_attr( $value ),
+                esc_html__( 'Token от BotFather, например 123456:ABC-DEF...', 'telegram-notify' )
+            );
         }
 
-        printf(
-            '<input type="password" id="tn_enh_bot_token" name="%1$s" value="%2$s" class="regular-text" autocomplete="new-password" />' .
-            '<p class="description">%3$s</p>',
-            esc_attr( $option_name ),
-            esc_attr( $value ),
-            esc_html__( 'Token от BotFather, например 123456:ABC-DEF...', 'telegram-notify' )
-        );
+        echo '<p class="description">' .
+            esc_html__( 'Создать бота и получить токен:', 'telegram-notify' ) .
+            ' <a href="https://t.me/BotFather" target="_blank" rel="noopener noreferrer">@BotFather</a>.</p>';
     }
 
     public function render_chat_ids_field() {
-        $value = get_option( $this->option_prefix . 'chat_ids', '' );
-        if ( defined( 'TN_TELEGRAM_CHAT_IDS' ) && TN_TELEGRAM_CHAT_IDS ) {
-            $value = TN_TELEGRAM_CHAT_IDS;
+        $option_name = $this->option_prefix . 'chat_recipients';
+        $recipients = $this->get_chat_recipients();
+
+        if ( empty( $recipients ) ) {
+            $recipients[] = [
+                'id'    => '',
+                'label' => '',
+            ];
         }
-        printf(
-            '<textarea id="tn_enh_chat_ids" name="%1$s" rows="3" class="large-text">%2$s</textarea>' .
-            '<p class="description">%3$s</p>',
-            esc_attr( $this->option_prefix . 'chat_ids' ),
-            esc_textarea( $value ),
-            esc_html__( 'Поддерживается несколько chat_id — разделяйте запятой или новой строкой.', 'telegram-notify' )
-        );
+
+        echo '<div id="tn-enh-chat-recipient-list" data-next-index="' .
+            esc_attr( (string) count( $recipients ) ) . '">';
+
+        foreach ( $recipients as $index => $recipient ) {
+            $id = (string) ( $recipient['id'] ?? '' );
+            $label = (string) ( $recipient['label'] ?? '' );
+
+            echo '<div class="tn-enh-chat-recipient-row">';
+
+            printf(
+                '<input type="text" class="regular-text tn-enh-chat-id" name="%1$s[%2$d][id]" value="%3$s" placeholder="%4$s" autocomplete="off" />',
+                esc_attr( $option_name ),
+                (int) $index,
+                esc_attr( $id ),
+                esc_attr__( 'Chat ID', 'telegram-notify' )
+            );
+
+            printf(
+                '<input type="text" class="regular-text tn-enh-chat-label" name="%1$s[%2$d][label]" value="%3$s" placeholder="%4$s" />',
+                esc_attr( $option_name ),
+                (int) $index,
+                esc_attr( $label ),
+                esc_attr__( 'Описание (имя, канал и прочее)', 'telegram-notify' )
+            );
+
+            echo '<button type="button" class="button-link-delete tn-enh-remove-recipient">' .
+                esc_html__( 'Удалить', 'telegram-notify' ) .
+                '</button>';
+
+            echo '</div>';
+        }
+
+        echo '</div>';
+
+        echo '<p><button type="button" class="button" id="tn-enh-add-recipient">' .
+            esc_html__( 'Добавить получателя', 'telegram-notify' ) .
+            '</button></p>';
+
+        echo '<details class="tn-enh-bulk-import">';
+        echo '<summary>' . esc_html__( 'Массовый ввод Chat ID', 'telegram-notify' ) . '</summary>';
+        echo '<p class="description">' .
+            esc_html__( 'Вставьте ID через новую строку, запятую или точку с запятой. При желании используйте формат ID | Имя.', 'telegram-notify' ) .
+            '</p>';
+        echo '<textarea id="tn-enh-chat-bulk" rows="4" class="large-text code" placeholder="200012345 | Иван&#10;-100123456789 | Рабочая группа"></textarea>';
+        echo '<p><button type="button" class="button" id="tn-enh-import-recipients">' .
+            esc_html__( 'Преобразовать в строки', 'telegram-notify' ) .
+            '</button></p>';
+        echo '</details>';
+
+        echo '<p class="description">' .
+            esc_html__( 'Личный Chat ID обычно выглядит как 200012345. ID группы или канала обычно отрицательный и часто начинается с -100, например -100123456789. Для публичного канала также можно указать @channelusername.', 'telegram-notify' ) .
+            '</p>';
+
+        echo '<p class="description">' .
+            esc_html__( 'Произвольное имя используется только в админке и не передаётся в Telegram.', 'telegram-notify' ) .
+            '</p>';
+
+        if ( defined( 'TN_TELEGRAM_CHAT_IDS' ) && TN_TELEGRAM_CHAT_IDS ) {
+            echo '<p class="description"><strong>' .
+                esc_html__( 'Внимание:', 'telegram-notify' ) .
+                '</strong> ' .
+                esc_html__( 'При отправке используется список из константы TN_TELEGRAM_CHAT_IDS. Строки ниже сохраняются как подписи и резервная конфигурация.', 'telegram-notify' ) .
+                '</p>';
+        }
+
         echo '<div id="tn_enh_chat_ids_feedback" class="notice notice-error" style="display:none;margin-top:8px;"><p></p></div>';
     }
 
@@ -509,7 +741,7 @@ class TN_Telegram_Notify_Enhanced {
     }
 
     private function get_options(): array {
-        $keys = [ 'bot_token', 'chat_ids', 'parse_mode', 'send_async', 'order_template', 'cf7_template', 'last_error' ];
+        $keys = [ 'bot_token', 'chat_ids', 'chat_recipients', 'parse_mode', 'send_async', 'order_template', 'cf7_template', 'last_error' ];
         $opts = [];
         foreach ( $keys as $k ) {
             $opts[ $k ] = get_option( $this->option_prefix . $k );
@@ -640,7 +872,37 @@ class TN_Telegram_Notify_Enhanced {
                         box-shadow: 0 0 0 1px rgba(214, 54, 56, 0.2);
                     }
                     #tn_enh_chat_ids_feedback {
-                        max-width: 640px;
+                        max-width: 760px;
+                    }
+                    .tn-enh-chat-recipient-row {
+                        display: grid;
+                        grid-template-columns: minmax(220px, 1fr) minmax(220px, 1fr) auto;
+                        gap: 8px;
+                        align-items: center;
+                        max-width: 900px;
+                        margin-bottom: 8px;
+                    }
+                    .tn-enh-chat-recipient-row .regular-text {
+                        width: 100%;
+                    }
+                    .tn-enh-bulk-import {
+                        max-width: 900px;
+                        margin: 12px 0;
+                        padding: 10px 12px;
+                        border: 1px solid #c3c4c7;
+                        background: #fff;
+                    }
+                    .tn-enh-bulk-import summary {
+                        cursor: pointer;
+                        font-weight: 600;
+                    }
+                    @media (max-width: 782px) {
+                        .tn-enh-chat-recipient-row {
+                            grid-template-columns: 1fr;
+                        }
+                        .tn-enh-chat-recipient-row .tn-enh-remove-recipient {
+                            justify-self: start;
+                        }
                     }
                 </style>
                 <script>
@@ -672,43 +934,137 @@ class TN_Telegram_Notify_Enhanced {
                             }
                         } );
 
-                        var $chatField = $( '#tn_enh_chat_ids' );
+                        var $recipientList = $( '#tn-enh-chat-recipient-list' );
                         var $feedback = $( '#tn_enh_chat_ids_feedback' );
+                        var recipientOptionName = <?php echo wp_json_encode( $this->option_prefix . 'chat_recipients' ); ?>;
+                        var deleteMessage = <?php echo wp_json_encode( __( 'Удалить этого получателя?', 'telegram-notify' ) ); ?>;
+                        var invalidMessage = <?php echo wp_json_encode( __( 'Проверьте Chat ID. Допустимы числовой ID, отрицательный ID группы/канала или @channelusername.', 'telegram-notify' ) ); ?>;
 
-                        var baseMessage = window.tnEnhChatIdError || '<?php echo esc_js( __( 'Проверьте chat ID: допускаются только цифры, буквы, подчёркивание, дефис и символ @. Неверные значения: ', 'telegram-notify' ) ); ?>';
+                        function escapeHtml( value ) {
+                            return $( '<div>' ).text( value || '' ).html();
+                        }
 
-                        function validateChatIds() {
-                            if ( ! $chatField.length ) {
+                        function createRecipientRow( id, label ) {
+                            var index = parseInt( $recipientList.attr( 'data-next-index' ), 10 ) || 0;
+                            $recipientList.attr( 'data-next-index', index + 1 );
+
+                            return $(
+                                '<div class="tn-enh-chat-recipient-row">' +
+                                '<input type="text" class="regular-text tn-enh-chat-id" name="' + escapeHtml( recipientOptionName ) + '[' + index + '][id]" value="' + escapeHtml( id ) + '" placeholder="Chat ID" autocomplete="off" />' +
+                                '<input type="text" class="regular-text tn-enh-chat-label" name="' + escapeHtml( recipientOptionName ) + '[' + index + '][label]" value="' + escapeHtml( label ) + '" placeholder="Описание (имя, канал и прочее)" />' +
+                                '<button type="button" class="button-link-delete tn-enh-remove-recipient"><?php echo esc_js( __( 'Удалить', 'telegram-notify' ) ); ?></button>' +
+                                '</div>'
+                            );
+                        }
+
+                        function isValidChatId( value ) {
+                            return /^-?\d+$/.test( value ) || /^@[A-Za-z0-9_]{5,}$/.test( value );
+                        }
+
+                        function validateRecipientRows() {
+                            var invalid = [];
+
+                            $recipientList.find( '.tn-enh-chat-id' ).each( function() {
+                                var $field = $( this );
+                                var value = ( $field.val() || '' ).trim();
+
+                                if ( value === '' ) {
+                                    $field.removeClass( 'tn-enh-invalid' );
+                                    return;
+                                }
+
+                                if ( ! isValidChatId( value ) ) {
+                                    invalid.push( value );
+                                    $field.addClass( 'tn-enh-invalid' );
+                                } else {
+                                    $field.removeClass( 'tn-enh-invalid' );
+                                }
+                            } );
+
+                            if ( invalid.length ) {
+                                $feedback.show().find( 'p' ).text(
+                                    invalidMessage + ' ' + invalid.join( ', ' )
+                                );
+                                return false;
+                            }
+
+                            $feedback.hide().find( 'p' ).text( '' );
+                            return true;
+                        }
+
+                        $( '#tn-enh-add-recipient' ).on( 'click', function() {
+                            $recipientList.append( createRecipientRow( '', '' ) );
+                            $recipientList.find( '.tn-enh-chat-id' ).last().focus();
+                        } );
+
+                        $recipientList.on( 'click', '.tn-enh-remove-recipient', function() {
+                            if ( ! window.confirm( deleteMessage ) ) {
                                 return;
                             }
 
-                            var raw = $chatField.val() || '';
-                            var parts = raw.split( /[\s,;]+/ );
-                            var invalid = [];
+                            $( this ).closest( '.tn-enh-chat-recipient-row' ).remove();
 
-                            for ( var i = 0; i < parts.length; i++ ) {
-                                var part = parts[ i ].trim();
-                                if ( part === '' ) {
-                                    continue;
-                                }
-                                if ( ! /^[0-9A-Za-z_@\-]+$/.test( part ) ) {
-                                    invalid.push( part );
-                                }
+                            if ( ! $recipientList.children().length ) {
+                                $recipientList.append( createRecipientRow( '', '' ) );
                             }
 
-                            if ( invalid.length ) {
-                                $chatField.addClass( 'tn-enh-invalid' );
-                                $feedback.show().find( 'p' ).text( baseMessage + invalid.join( ', ' ) );
-                            } else {
-                                $chatField.removeClass( 'tn-enh-invalid' );
-                                $feedback.hide().find( 'p' ).text( '' );
-                            }
-                        }
+                            validateRecipientRows();
+                        } );
 
-                        if ( $chatField.length ) {
-                            $chatField.on( 'input blur', validateChatIds );
-                            validateChatIds();
-                        }
+                        $( '#tn-enh-import-recipients' ).on( 'click', function() {
+                            var raw = $( '#tn-enh-chat-bulk' ).val() || '';
+                            var parts = raw.split( /[\r\n,;]+/ );
+                            var existing = {};
+
+                            $recipientList.find( '.tn-enh-chat-id' ).each( function() {
+                                var value = ( $( this ).val() || '' ).trim();
+                                if ( value ) {
+                                    existing[ value ] = true;
+                                }
+                            } );
+
+                            parts.forEach( function( item ) {
+                                item = item.trim();
+                                if ( ! item ) {
+                                    return;
+                                }
+
+                                var pair = item.split( '|' );
+                                var id = ( pair.shift() || '' ).trim();
+                                var label = pair.join( '|' ).trim();
+
+                                if ( ! id || existing[ id ] ) {
+                                    return;
+                                }
+
+                                var $emptyRow = $recipientList.find( '.tn-enh-chat-recipient-row' ).filter( function() {
+                                    return ( $( this ).find( '.tn-enh-chat-id' ).val() || '' ).trim() === '';
+                                } ).first();
+
+                                if ( $emptyRow.length ) {
+                                    $emptyRow.find( '.tn-enh-chat-id' ).val( id );
+                                    $emptyRow.find( '.tn-enh-chat-label' ).val( label );
+                                } else {
+                                    $recipientList.append( createRecipientRow( id, label ) );
+                                }
+
+                                existing[ id ] = true;
+                            } );
+
+                            $( '#tn-enh-chat-bulk' ).val( '' );
+                            validateRecipientRows();
+                        } );
+
+                        $recipientList.on( 'input blur', '.tn-enh-chat-id', validateRecipientRows );
+
+                        $( 'form[action="options.php"]' ).on( 'submit', function( event ) {
+                            if ( ! validateRecipientRows() ) {
+                                event.preventDefault();
+                                $recipientList.find( '.tn-enh-invalid' ).first().focus();
+                            }
+                        } );
+
+                        validateRecipientRows();
                     } );
                 } )( window.jQuery );
                 </script>
@@ -1607,15 +1963,7 @@ class TN_Telegram_Notify_Enhanced {
     }
 
     private function split_chat_ids( string $raw ): array {
-        $raw = trim( $raw );
-        if ( $raw === '' ) {
-            return [];
-        }
-        // Split by commas, semicolons, or line breaks.
-        $parts = preg_split( '/[\\r\\n,;]+/', $raw );
-        $parts = array_map( 'trim', $parts );
-        $parts = array_filter( $parts );
-        return $parts;
+        return $this->parse_chat_id_list( $raw );
     }
 
     private function normalize_plain_text( string $text ): string {
