@@ -12,14 +12,10 @@ Current plugin version: **2.3.0**.
 
 - Уведомления о новых заказах и смене статусов WooCommerce.
 - Уведомления об отправках Contact Form 7.
-- Отдельный пункт **Telegram Notify** в главном меню админки.
-- Ссылка **Настройки** в списке установленных плагинов.
 - Несколько получателей с отдельными Chat ID и понятными подписями.
-- Добавление и удаление строк получателей с подтверждением удаления.
 - Массовый ввод Chat ID с преобразованием в отдельные строки.
 - Поддержка формата массового ввода `ID | Имя`.
 - Поддержка публичных каналов вида `@channelusername`.
-- Ссылка на [@BotFather](https://t.me/BotFather) на странице настроек.
 - Шаблоны сообщений с плейсхолдерами.
 - Режимы форматирования HTML и MarkdownV2.
 - Асинхронная очередь с ограниченным числом повторных попыток.
@@ -28,7 +24,6 @@ Current plugin version: **2.3.0**.
 - Краткий журнал очереди и ошибок без сохранения полного ответа Telegram API.
 - Поддержка WooCommerce HPOS через CRUD API заказов.
 - Возможность задать токен и Chat ID через константы в `wp-config.php`.
-- Встроенная инструкция `about.html`, доступная из настроек плагина.
 
 ### Требования и целевая совместимость
 
@@ -72,8 +67,8 @@ define( 'TN_TELEGRAM_BOT_TOKEN', '123456:ABC-DEF...' );
 
 Примеры:
 
-- личный чат: `200013814`;
-- группа или канал: `-1002987209369`;
+- личный чат: `200012345`;
+- группа или канал: `-1002123456789`;
 - публичный канал: `@channelusername`.
 
 Числовые идентификаторы групп и каналов имеют отрицательное значение и часто начинаются с `-100`.
@@ -91,8 +86,8 @@ define( 'TN_TELEGRAM_BOT_TOKEN', '123456:ABC-DEF...' );
 В блок массового ввода можно вставить ID, разделённые переносами строк, запятыми или точками с запятой. Дополнительно поддерживается формат:
 
 ```text
-200013814 | Иван
--1002987209369 | Рабочая группа
+200012345 | Иван
+-1002123456789 | Рабочая группа
 ```
 
 После нажатия **Преобразовать в строки** значения добавляются в список получателей. Дубликаты не добавляются повторно.
@@ -100,7 +95,7 @@ define( 'TN_TELEGRAM_BOT_TOKEN', '123456:ABC-DEF...' );
 ### Chat ID через `wp-config.php`
 
 ```php
-define( 'TN_TELEGRAM_CHAT_IDS', '-1002987209369,@channelusername' );
+define( 'TN_TELEGRAM_CHAT_IDS', '-1002123456789,@channelusername' );
 ```
 
 Если определена константа `TN_TELEGRAM_CHAT_IDS`, при отправке используется список из неё. Получатели, сохранённые в админке, остаются резервной конфигурацией и могут использоваться как подписи.
@@ -150,13 +145,9 @@ The plugin sends WooCommerce order notifications and Contact Form 7 submissions 
 
 - New order and order status notifications for WooCommerce.
 - Contact Form 7 submission notifications.
-- A top-level **Telegram Notify** admin menu.
-- A **Settings** action link on the Plugins screen.
 - Multiple named recipients with separate Chat IDs.
-- Add and remove recipient rows with deletion confirmation.
 - Bulk Chat ID import with optional `ID | Name` labels.
 - Public channels such as `@channelusername`.
-- A direct [@BotFather](https://t.me/BotFather) link in the settings page.
 - Message templates with placeholders.
 - HTML and MarkdownV2 parse modes.
 - Asynchronous queue with a limited number of retries.
@@ -190,7 +181,7 @@ Test the plugin on a staging copy before updating a production site.
 
 ```php
 define( 'TN_TELEGRAM_BOT_TOKEN', '123456:ABC-DEF...' );
-define( 'TN_TELEGRAM_CHAT_IDS', '-1002987209369,@channelusername' );
+define( 'TN_TELEGRAM_CHAT_IDS', '-1002123456789,@channelusername' );
 ```
 
 When `TN_TELEGRAM_BOT_TOKEN` is defined, the token is not exposed in the settings page and is not overwritten when the form is saved. When `TN_TELEGRAM_CHAT_IDS` is defined, it takes precedence over recipients stored in the database.
@@ -202,8 +193,8 @@ Each recipient has a Chat ID and an optional admin-only label. Existing legacy C
 Bulk import accepts line breaks, commas or semicolons, and optionally supports:
 
 ```text
-200013814 | Ivan
--1002987209369 | Work group
+200012345 | John
+-1002123456789 | Work group
 ```
 
 ### Async queue
