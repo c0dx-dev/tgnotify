@@ -559,7 +559,7 @@ class TN_Telegram_Notify_Enhanced {
                 esc_attr__( 'Описание (имя, канал и прочее)', 'telegram-notify' )
             );
 
-            echo '<button type="button" class="button-link-delete tn-enh-remove-recipient">' .
+            echo '<button type="button" class="button button-link-delete tn-enh-remove-recipient">' .
                 esc_html__( 'Удалить', 'telegram-notify' ) .
                 '</button>';
 
@@ -952,7 +952,7 @@ class TN_Telegram_Notify_Enhanced {
                                 '<div class="tn-enh-chat-recipient-row">' +
                                 '<input type="text" class="regular-text tn-enh-chat-id" name="' + escapeHtml( recipientOptionName ) + '[' + index + '][id]" value="' + escapeHtml( id ) + '" placeholder="Chat ID" autocomplete="off" />' +
                                 '<input type="text" class="regular-text tn-enh-chat-label" name="' + escapeHtml( recipientOptionName ) + '[' + index + '][label]" value="' + escapeHtml( label ) + '" placeholder="Описание (имя, канал и прочее)" />' +
-                                '<button type="button" class="button-link-delete tn-enh-remove-recipient"><?php echo esc_js( __( 'Удалить', 'telegram-notify' ) ); ?></button>' +
+                                '<button type="button" class="button button-link-delete tn-enh-remove-recipient"><?php echo esc_js( __( 'Удалить', 'telegram-notify' ) ); ?></button>' +
                                 '</div>'
                             );
                         }
