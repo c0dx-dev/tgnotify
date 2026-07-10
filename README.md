@@ -38,7 +38,7 @@ Current plugin version: **2.3.0**.
 
 ### Установка
 
-1. Скопируйте папку `tgnotify2` в `/wp-content/plugins/` или установите подготовленный релизный ZIP-архив.
+1. Скопируйте папку `tgnotify` в `/wp-content/plugins/` или установите подготовленный релизный ZIP-архив.
 2. Активируйте **c0dx: Telegram Notify Enhanced** в разделе плагинов WordPress.
 3. Откройте пункт **Telegram Notify** в главном меню админки или нажмите **Настройки** в списке плагинов.
 4. Укажите Bot Token и добавьте одного или нескольких получателей.
@@ -171,7 +171,7 @@ Test the plugin on a staging copy before updating a production site.
 
 ### Installation
 
-1. Copy the `tgnotify2` directory to `/wp-content/plugins/` or install a prepared release ZIP package.
+1. Copy the `tgnotify` directory to `/wp-content/plugins/` or install a prepared release ZIP package.
 2. Activate **c0dx: Telegram Notify Enhanced**.
 3. Open **Telegram Notify** in the main admin menu or use the **Settings** link on the Plugins screen.
 4. Enter the bot token and add one or more recipients.
@@ -225,7 +225,7 @@ README.md
 LICENSE
 CHANGELOG.md
 .gitignore
-tgnotify2/
+tgnotify/
   .htaccess
   about.html
   telegram_notify_enhanced.php
