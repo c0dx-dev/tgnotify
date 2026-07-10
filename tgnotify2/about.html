@@ -9,7 +9,7 @@
     <h1>c0dx: Telegram Notify Enhanced</h1>
 
     <section>
-        <p><strong>Версия 2.2.0.</strong></p>
+        <p><strong>Версия 2.3.0.</strong></p>
         <p>Плагин отправляет уведомления о заказах WooCommerce и сообщениях Contact Form 7 в один или несколько Telegram-чатов или каналов.</p>
         <p>Уведомления WooCommerce и Contact Form 7 можно включать отдельно. Для CF7 также можно ограничить отправку выбранными формами.</p>
     </section>
@@ -43,8 +43,9 @@
     <section>
         <h2>Bot Token</h2>
         <ol>
-            <li>Откройте в Telegram бота <strong>@BotFather</strong>.</li>
-            <li>Создайте нового бота командой <code>/newbot</code>.</li>
+            <li>Откройте в Telegram бота <strong><a href="https://t.me/BotFather" target="_blank" rel="noopener noreferrer"><strong>@BotFather</strong></a></strong>.</li>
+            <li>Создайте нового бота, отправив команды <code>/start</code>, затем <code>/newbot</code>.</li>
+            <li>Задайте имя и уникальный username бота.</li>
             <li>Скопируйте выданный токен и вставьте его в поле <em>Bot Token</em> в настройках плагина.</li>
         </ol>
         <p>Токен можно хранить вне базы WordPress, добавив в <code>wp-config.php</code>:</p>
@@ -53,15 +54,24 @@
     </section>
 
     <section>
-        <h2>Chat ID</h2>
-        <ol>
-            <li>Отправьте любое сообщение своему боту или в нужный канал.</li>
-            <li>Для канала предварительно добавьте бота в администраторы.</li>
-            <li>Получите числовой chat ID через Telegram API или используйте имя публичного канала вида <code>@channelusername</code>.</li>
-        </ol>
-        <p>Можно указать несколько значений, разделяя их запятой или новой строкой.</p>
-        <p>Chat ID также можно задать в <code>wp-config.php</code>:</p>
-        <pre><code>define( 'TN_TELEGRAM_CHAT_IDS', '-1001234567890,@channelusername' );</code></pre>
+        <h2>Chat ID и получатели</h2>
+        <p>Каждый получатель добавляется отдельной строкой. В первой колонке указывается Chat ID, во второй — произвольное понятное имя: сотрудник, отдел, группа или канал. Имя используется только в админке и не отправляется в Telegram.</p>
+        <p>Примеры форматов:</p>
+        <ul>
+            <li>личный чат: <code>200012345</code>;</li>
+            <li>группа или канал: <code>-1002123456789</code>;</li>
+            <li>публичный канал: <code>@channelusername</code>.</li>
+        </ul>
+        <p>Числовые идентификаторы групп и каналов имеют отрицательное значение и часто начинаются с <code>-100</code>.</p>
+
+        <h3>Как узнать свой Chat ID</h3>
+        <p>Найдите и запустите бота <a href="https://t.me/getmyid_bot" target="_blank" rel="noopener noreferrer"><strong>@getmyid_bot</strong></a>. Отправьте ему сообщение — бот покажет значение <em>Your user ID</em>.</p>
+
+        <h3>Как узнать Chat ID группы или канала</h3>
+        <p>Перешлите любое сообщение из нужной группы или канала боту <a href="https://t.me/ShowJsonBot" target="_blank" rel="noopener noreferrer"><strong>@ShowJsonBot</strong></a>. В полученном JSON найдите объект <code>chat</code> и поле <code>id</code>. Для некоторых чатов бота потребуется предварительно добавить в группу или канал.</p>
+
+        <h3>Массовый ввод</h3>
+        <p>В блок массового ввода можно вставить несколько ID, разделённых переносом строки, запятой или точкой с запятой. Поддерживается формат <code>ID | Имя</code>. После нажатия «Преобразовать в строки» значения появятся в отдельных полях.</p>
     </section>
 
     <section>
