@@ -1,0 +1,67 @@
+name: Feature request
+description: Propose a focused improvement for c0dx: Telegram Notify Enhanced
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the practical problem first. The project intentionally avoids unnecessary dependencies and broad architectural expansion.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Practical problem
+      description: What real workflow or limitation should be addressed?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      options:
+        - WooCommerce notifications
+        - Contact Form 7 notifications
+        - Recipients and Chat IDs
+        - Message templates or formatting
+        - Background queue and retries
+        - Diagnostics or administration
+        - Compatibility
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the smallest change that would solve the problem.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Note any existing WordPress, WooCommerce or Telegram mechanism that was considered.
+
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: Compatibility and data considerations
+      description: Explain any effect on PHP 8.0+, WordPress 6.8+, WooCommerce, CF7, stored settings, queued messages or privacy.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Preliminary checks
+      options:
+        - label: I checked the current documentation and existing issues.
+          required: true
+        - label: This request is based on a practical use case rather than a speculative rewrite.
+          required: true
+        - label: The proposal does not require publishing credentials or customer data.
+          required: true
