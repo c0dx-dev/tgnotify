@@ -1,0 +1,122 @@
+name: Bug report
+description: Report a reproducible problem in c0dx: Telegram Notify Enhanced
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include Bot Tokens, passwords, private URLs, customer data, order details, form submissions or complete production logs.
+
+  - type: input
+    id: plugin-version
+    attributes:
+      label: Plugin version
+      placeholder: "2.3.0"
+    validations:
+      required: true
+
+  - type: input
+    id: wordpress-version
+    attributes:
+      label: WordPress version
+      placeholder: "7.0"
+    validations:
+      required: true
+
+  - type: input
+    id: php-version
+    attributes:
+      label: PHP version
+      placeholder: "8.4"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: integration
+    attributes:
+      label: Affected integration
+      options:
+        - WooCommerce
+        - Contact Form 7
+        - Telegram settings or test send
+        - Background queue
+        - Other or not sure
+    validations:
+      required: true
+
+  - type: input
+    id: integration-versions
+    attributes:
+      label: WooCommerce / Contact Form 7 versions
+      description: Enter the relevant extension versions or write "not applicable".
+    validations:
+      required: true
+
+  - type: dropdown
+    id: parse-mode
+    attributes:
+      label: Parse mode
+      options:
+        - HTML
+        - MarkdownV2
+        - Not applicable or not sure
+    validations:
+      required: true
+
+  - type: dropdown
+    id: queue
+    attributes:
+      label: Background queue
+      options:
+        - Enabled
+        - Disabled
+        - Not applicable or not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Use synthetic data and include a minimal template or event sequence when possible.
+      placeholder: |
+        1. Configure a test recipient.
+        2. Enable the affected integration.
+        3. Trigger the following event...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Relevant diagnostics
+      description: Remove Bot Tokens, Chat IDs, private URLs, customer data and unrelated log entries.
+      render: shell
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Preliminary checks
+      options:
+        - label: I checked the current documentation and existing issues.
+          required: true
+        - label: I reproduced the problem with synthetic or non-sensitive data.
+          required: true
+        - label: I removed tokens, credentials and private data from this report.
+          required: true
